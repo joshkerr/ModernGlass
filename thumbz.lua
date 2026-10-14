@@ -834,9 +834,10 @@ local function spawn(time)
     mp.command_native_async({name = "subprocess", args = args, playback_only = true,
                              capture_stdout = true, capture_stderr = true},
         function(_, result)
+            local expected = files.stopped  -- read before stop_renderer() marks it stopped
             if run == files then stop_renderer() end  -- it quit by itself (idle) or crashed
             if files.alive then failures = 0 end
-            if files.alive or files.stopped or (result and result.killed_by_us) then return end
+            if files.alive or expected or (result and result.killed_by_us) then return end
             if run ~= nil then return end  -- a newer run already took over
             -- this run never got going: try the next mpv candidate, then give up
             local out = result and ((result.stderr or "") .. (result.stdout or "")) or ""
