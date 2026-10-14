@@ -1272,17 +1272,20 @@ local function cover_done(path, file)
     mp.commandv("script-message", "thumbz-cover", path, file or "")
 end
 
-local function cover_args(path, out)
+-- swapped: the file is rotated a quarter turn, which mpv applies after these filters
+local function cover_args(path, out, swapped)
+    local w, h = COVER_W, COVER_H
+    if swapped then w, h = h, w end
     mpv_candidates = mpv_candidates or find_mpv_candidates()
     local args = use_nice and {"nice", "-n", tostring(nice_levels[o.priority])} or {}
     for _, arg in ipairs({
-        mpv_candidates[1], "--no-config", "--msg-level=all=no", "--input-terminal=no",
+        mpv_candidates[1], "--no-config", "--msg-level=all=no,cplayer=info", "--input-terminal=no",
         "--load-scripts=no", "--osc=no", "--ytdl=no", "--input-default-bindings=no",
         "--start=20%", "--frames=1", "--hr-seek=no", "--aid=no", "--sid=no",
         "--vd-lavc-skiploopfilter=all", "--vd-lavc-fast",
         "--vd-lavc-threads=" .. math.floor(o.threads), "--hwdec=" .. renderer_hwdec(),
         string.format("--vf=scale=w=%d:h=%d:force_original_aspect_ratio=increase:flags=%s,crop=w=%d:h=%d,format=bgra",
-                      COVER_W, COVER_H, o.scaler, COVER_W, COVER_H),
+                      w, h, o.scaler, w, h),
         "--ovc=rawvideo", "--of=rawvideo", "--o=" .. out,
     }) do args[#args + 1] = arg end
     for _, name in ipairs({"load-stats-overlay", "load-auto-profiles", "load-select", "load-commands",
@@ -1306,31 +1309,43 @@ local function next_cover()
     if utils.file_info(final) then cover_done(path, final) return next_cover() end
     cover_busy = true
     local tmp = base .. "_cover.bgra"
-    os.remove(tmp)
-    local watchdog
-    local id = mp.command_native_async({name = "subprocess", args = cover_args(path, tmp),
-                                        playback_only = false, capture_stdout = true, capture_stderr = true},
-        function()
-            if watchdog then watchdog:kill() end
-            local f = io.open(tmp, "rb")
-            local data = f and f:read("*a")
-            if f then f:close() end
-            os.remove(tmp)
-            local ok = false
-            if data and #data == COVER_W * COVER_H * 4 then
-                local out = io.open(final, "wb")
-                if out then
-                    out:write(round_corners(data))
-                    out:close()
-                    ok = true
+    local swapped = false
+    local render
+    render = function()
+        os.remove(tmp)
+        local watchdog
+        local id = mp.command_native_async({name = "subprocess", args = cover_args(path, tmp, swapped),
+                                            playback_only = false, capture_stdout = true, capture_stderr = true},
+            function(_, result)
+                if watchdog then watchdog:kill() end
+                -- a rotated file comes out portrait (same byte count): render it again the other way round
+                local out_w, out_h = (result and ((result.stdout or "") .. (result.stderr or "")) or "")
+                                     :match("VO: %[[^%]]*%] (%d+)x(%d+)")
+                if not swapped and tonumber(out_w) == COVER_H and tonumber(out_h) == COVER_W then
+                    swapped = true
+                    return render()
                 end
-            end
-            cover_done(path, ok and final or nil)
-            cover_busy = false
-            next_cover()
-        end)
-    -- a file that never finishes (unreadable, very slow storage) mustn't hold up the rest
-    watchdog = mp.add_timeout(15, function() mp.abort_async_command(id) end)
+                local f = io.open(tmp, "rb")
+                local data = f and f:read("*a")
+                if f then f:close() end
+                os.remove(tmp)
+                local ok = false
+                if data and #data == COVER_W * COVER_H * 4 then
+                    local out = io.open(final, "wb")
+                    if out then
+                        out:write(round_corners(data))
+                        out:close()
+                        ok = true
+                    end
+                end
+                cover_done(path, ok and final or nil)
+                cover_busy = false
+                next_cover()
+            end)
+        -- a file that never finishes (unreadable, very slow storage) mustn't hold up the rest
+        watchdog = mp.add_timeout(15, function() mp.abort_async_command(id) end)
+    end
+    render()
 end
 
 -- covers <json list of paths>: the ones the menu shows now go first
