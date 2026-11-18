@@ -93,6 +93,12 @@ The [options guide](docs/USER_OPTS.md) lists every option. ModernZ's other layou
 
 Thumbz renders thumbnails in a second mpv in the background. It starts on thumbnails across the file when the controls appear, shows the closest one while you move along the seekbar, and renders the exact frame when you stop. It also makes the thumbnails in the folder and playlist menus.
 
+**mpv.app on macOS.** By default the background mpv is the same binary as the player. Inside `mpv.app`, macOS counts it as another launch of the app, and the Dock's recent apps fill up with extra mpv icons. Point `mpv_path` in `thumbz.conf` at an mpv outside the app bundle, such as Homebrew's:
+
+```ini
+mpv_path=/opt/homebrew/bin/mpv
+```
+
 | | Thumbfast | Thumbz |
 | --- | :---: | :---: |
 | Time for 24 exact thumbnails | 8.2 s | 6.8 s |
