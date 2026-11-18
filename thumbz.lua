@@ -772,6 +772,22 @@ end
 local nice_levels = {idle = 19, belownormal = 10}
 local use_nice = not is_windows and nice_levels[o.priority] ~= nil
 
+-- Leading arguments for a renderer: optional nice, and on macOS no MPVBUNDLE.
+-- mpv.app sets MPVBUNDLE=true and the renderers inherit it, which makes mpv
+-- start as a regular app with its own Dock icon. --macos-app-activation-policy
+-- can't prevent that: mpv applies it only when it opens a video window, and
+-- the renderers never do. Without MPVBUNDLE mpv starts as an accessory app.
+local function launch_prefix(niced)
+    local args = {}
+    if platform == "darwin" then
+        for _, a in ipairs({"env", "-u", "MPVBUNDLE"}) do args[#args + 1] = a end
+    end
+    if niced then
+        for _, a in ipairs({"nice", "-n", tostring(nice_levels[o.priority])}) do args[#args + 1] = a end
+    end
+    return args
+end
+
 local function spawn(time)
     if spawned or broken or disabled or not size then return false end
     clean_stale_files()
@@ -803,7 +819,7 @@ local function spawn(time)
     send(string.format("init %d %.3f %d", id, time, size.bytes))
 
     local niced = use_nice
-    local args = niced and {"nice", "-n", tostring(nice_levels[o.priority])} or {}
+    local args = launch_prefix(niced)
     for _, arg in ipairs({
         exe, "--no-config", "--quiet", "--msg-level=all=error", "--input-terminal=no",
         "--load-scripts=no", "--osc=no", "--ytdl=no", "--input-default-bindings=no",
@@ -1358,7 +1374,7 @@ end
 
 local function cover_args(path, out)
     mpv_candidates = mpv_candidates or find_mpv_candidates()
-    local args = use_nice and {"nice", "-n", tostring(nice_levels[o.priority])} or {}
+    local args = launch_prefix(use_nice)
     for _, arg in ipairs({
         mpv_candidates[1], "--no-config", "--msg-level=all=no", "--input-terminal=no",
         "--load-scripts=no", "--osc=no", "--ytdl=no", "--input-default-bindings=no",
