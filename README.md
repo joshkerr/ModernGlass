@@ -112,6 +112,12 @@ Thumbz is a seekbar thumbnailer written for ModernGlass, as a replacement for Th
 
 Thumbz also makes the small thumbnails in the folder and playlist menus. Each one is a frame from 20% into the file, made once and kept in mpv's cache folder, so a folder opened before shows them straight away.
 
+**mpv.app on macOS.** By default the background mpv is the same binary as the player. Inside `mpv.app`, macOS counts it as another launch of the app, and the Dock's recent apps fill up with extra mpv icons. Point `mpv_path` in `thumbz.conf` at an mpv outside the app bundle, such as Homebrew's:
+
+```ini
+mpv_path=/opt/homebrew/bin/mpv
+```
+
 | | Thumbfast | Thumbz |
 | --- | :---: | :---: |
 | Time for all 24 thumbnails | 12.8 s | 9.7 s |
