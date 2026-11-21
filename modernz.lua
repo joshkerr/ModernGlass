@@ -1154,6 +1154,21 @@ local function set_time_styles(timecurrent_changed, timems_changed)
     end
 end
 
+-- a chapter title worth showing: not empty and not a muxer's placeholder for "no
+-- name" (some tools write "(unnamed)", the text mpv itself uses for untitled chapters)
+local function real_chapter_title(title)
+    if type(title) ~= "string" then return nil end
+    local t = title:match("^%s*(.-)%s*$")
+    if t == "" or t:lower() == "(unnamed)" then return nil end
+    return title
+end
+
+-- the real title of chapter index (0-based) in the cached chapter list, or nil
+local function chapter_title_of(index)
+    local ch = state.chapter_list and state.chapter_list[(index or -1) + 1]
+    return ch and real_chapter_title(ch.title)
+end
+
 local function observe_cached(property, callback)
     local key = property:gsub("-", "_")
     mp.observe_property(property, "native", function (_, value)
@@ -2841,7 +2856,7 @@ local function render_elements(master_ass, osc_vis, wc_vis)
                                 local dur = state.duration or 0
                                 if dur > 0 then
                                     local ch = get_chapter(sliderpos * dur / 100)
-                                    if ch and ch.title and ch.title ~= "" then
+                                    if ch and real_chapter_title(ch.title) then
                                         chapter_text = string.format(user_opts.chapter_fmt, ch.title)
                                         chapter_width = estimate_text_width(chapter_text, slider_lo.tooltip_style)
                                     end
@@ -4426,7 +4441,15 @@ layouts["default"] = function ()
     local title_fs = user_opts.title_font_size
     local seek_off = show_title and (14 + title_fs + 18) or 24   -- panel top to seekbar centre
     local panel_h = seek_off + 32 + inset + btn / 2
-    local py = H - margin - panel_h
+    -- Sit above a letterbox bar: the frosting blurs the video, so a panel hanging over
+    -- the black bar under it (a wide film fullscreen on a 16:10 screen) splits into a
+    -- frosted top and a flat dark strip. Float it over the picture instead.
+    local d = state.osd_dimensions or {}
+    local bar = 0
+    if (d.h or 0) > 0 and (d.mb or 0) > 0 then
+        bar = math.max(0, math.min(d.mb * H / d.h, H - panel_h - 2 * margin))
+    end
+    local py = H - margin - panel_h - bar
     local x0, x1 = px + pad_x, px + panel_w - pad_x
     local inner_w = x1 - x0
     local seek_cy = py + seek_off
@@ -4437,7 +4460,7 @@ layouts["default"] = function ()
     state.panel_rect = {x1 = px, y1 = py, x2 = px + panel_w, y2 = py + panel_h, r = radius}
 
     osc_param.areas = {}
-    osc_param.video_margins.b = (panel_h + margin) / H
+    osc_param.video_margins.b = (panel_h + margin + bar) / H
     add_area("input", px, py, px + panel_w, py + panel_h)
     add_area("showhide", 0, get_align(-1 + (2 * user_opts.deadzonesize), py, 0, 0), W, H)
 
@@ -4446,7 +4469,8 @@ layouts["default"] = function ()
     local lo, ne
 
     -- title row: title on the left, current chapter (muted, opens the chapter list) on the right
-    local chapter_index = (state.chapter or -1) >= 0
+    -- an untitled chapter shows nothing here: "Chapter: 2/5" says little on the panel
+    local chapter_index = (state.chapter or -1) >= 0 and chapter_title_of(state.chapter) ~= nil
     local show_chapter = user_opts.show_chapter_title and chapter_index and user_opts.chapter_fmt ~= "no"
     local baseline = py + 14 + title_fs
     local chapter_w = show_chapter and math.floor(inner_w * 0.36) or 0
@@ -5898,8 +5922,7 @@ local function osc_init()
     ne.content = function()
         local chapter_index = state.chapter or -1
         if user_opts.chapter_fmt == "no" or chapter_index < 0 then return "" end
-        local chapter_data = state.chapter_list[chapter_index + 1]
-        local raw = chapter_data and chapter_data.title ~= "" and chapter_data.title
+        local raw = chapter_title_of(chapter_index)
             or string.format("%s: %d/%d", locale.chapter, chapter_index + 1, #state.chapter_list)
         if state.chapter_title_raw ~= raw then
             state.chapter_title_raw = raw
@@ -7094,9 +7117,13 @@ observe_cached("speed", request_tick)
 -- the layout reserves a chapter title row only while inside a chapter, so rebuild it
 -- when playback enters or leaves the chapter range (e.g. starting before the first chapter)
 mp.observe_property("chapter", "native", function(_, value)
+    -- the glass panel lays out the chapter slot only for a titled chapter, so moving
+    -- between titled and untitled chapters needs a new layout too
+    local function titled(ch) return (ch or -1) >= 0 and chapter_title_of(ch) ~= nil end
     local was_in_chapter = (state.chapter or -1) >= 0
+    local was_titled = titled(state.chapter)
     state.chapter = value
-    if user_opts.show_chapter_title and was_in_chapter ~= ((value or -1) >= 0) then
+    if user_opts.show_chapter_title and (was_in_chapter ~= ((value or -1) >= 0) or was_titled ~= titled(value)) then
         request_init()
     else
         request_tick()
